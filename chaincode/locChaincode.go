@@ -36,14 +36,73 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 
 // RequestLOC creates a new LoC request
 func (s *SmartContract) RequestLOC(ctx contractapi.TransactionContextInterface, locID string, buyer string, seller string, issuingBank string, advisingBank string, amount string, currency string, expiryDate string, goodsDescription string) error {
-	// TODO: Implement RequestLOC function
-	// Verify caller is TataMotors
-	// Create new LoC with status "Requested"
-	// Add to history
-	return nil
+mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return fmt.Errorf("failed to get MSP ID: %v", err)
+	}
+	if mspID != "TataMotorsMSP" {
+		return fmt.Errorf("only TataMotorsMSP is authorized to request a Letter of Credit")
+	}
+
+	existing, err := ctx.GetStub().GetState(locID)
+	if err != nil {
+		return fmt.Errorf("failed to read from ledger: %v", err)
+	}
+	if existing != nil {
+		return fmt.Errorf("LoC with ID %s already exists", locID)
+	}
+
+
+func (s *SmartContract) IssueLOC(ctx contractapi.TransactionContextInterface, locID string) error {
+	mspID, _ := ctx.GetClientIdentity().GetMSPID()
+	if mspID != "SBIBankMSP" {
+		return fmt.Errorf("only SBIBankMSP (Issuing Bank) can issue the LoC")
+	}
+
+	locBytes, err := ctx.GetStub().GetState(locID)
+	if err != nil || locBytes == nil {
+		return fmt.Errorf("LoC not found")
+	}
+
+	var loc LetterOfCredit
+	_ = json.Unmarshal(locBytes, &loc)
+
+	if loc.Status != "Requested" {
+		return fmt.Errorf("LoC must be in 'Requested' state to be issued")
+	}
+
+	loc.Status = "Issued"
+	loc.History = append(loc.History, "LoC issued by Issuing Bank")
+
+	newBytes, _ := json.Marshal(loc)
+	return ctx.GetStub().PutState(locID, newBytes)
 }
 
-// TODO: Implement other functions here (IssueLOC, AcceptLOC, etc.)
+// AcceptLOC - Seller accepts the issued LoC
+func (s *SmartContract) AcceptLOC(ctx contractapi.TransactionContextInterface, locID string) error {
+	mspID, _ := ctx.GetClientIdentity().GetMSPID()
+	if mspID != "SellerOrgMSP" {
+		return fmt.Errorf("only SellerOrgMSP can accept the LoC")
+	}
+
+	locBytes, err := ctx.GetStub().GetState(locID)
+	if err != nil || locBytes == nil {
+		return fmt.Errorf("LoC not found")
+	}
+
+	var loc LetterOfCredit
+	_ = json.Unmarshal(locBytes, &loc)
+
+	if loc.Status != "Issued" {
+		return fmt.Errorf("LoC must be 'Issued' to be accepted")
+	}
+
+	loc.Status = "Accepted"
+	loc.History = append(loc.History, "LoC accepted by Seller")
+
+	newBytes, _ := json.Marshal(loc)
+	return ctx.GetStub().PutState(locID, newBytes)
+}
 
 func main() {
 	chaincode, err := contractapi.NewChaincode(&SmartContract{})
